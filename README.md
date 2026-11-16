@@ -1,130 +1,87 @@
 # Credit Card Fraud Detection
 
-Predict whether a card transaction is fraudulent (`is_fraud`) and serve the model as a web service.
+ML Zoomcamp midterm project. A binary classifier that scores a card transaction with the probability of fraud, served as a Flask API in Docker.
 
 ## Problem
 
-A payment processor needs to decide, per transaction and in real time, which ones look fraudulent.
-The service returns a fraud probability and a yes/no decision. Transactions flagged as fraud can be
-blocked or sent for manual review or step-up verification.
+Fraud is rare (1.67%, about 1 in 60 transactions), so accuracy is meaningless. The model ranks transactions by fraud risk and a decision threshold is chosen for a target recall of 80%, because a missed fraud costs more than a false alarm.
 
-Fraud is rare, so accuracy is meaningless. The project uses:
+- Main metric: PR-AUC. Secondary: ROC-AUC.
+- Validation: 5-fold stratified CV, out-of-fold predictions, same folds everywhere.
 
-- **PR-AUC** as the main metric and **ROC-AUC** as a second reference
-- **Stratified 5-fold CV**, the same folds for every experiment
-- A decision threshold chosen on out-of-fold predictions: the highest precision that still reaches a target recall of 0.80 (missed fraud costs more than a false alarm)
+## Data
 
-## Dataset
+699,960 labelled transactions, 25 features (numeric, boolean and 5 categorical), target `is_fraud`. No missing values, no duplicates. The data is not stored in this repository.
 
-[Kaggle Playground Series S6E11, Predicting Credit Card Fraud](https://www.kaggle.com/competitions/playground-series-s6e11/data)
-(synthetic data, CC BY 4.0). `train.csv` has the target `is_fraud`. The data is not committed to this repository.
+Source: Kaggle Playground Series S6E11 "Predicting Credit Card Fraud". Accept the competition rules on Kaggle, set up the Kaggle API token, then:
 
-```bash
-# needs a Kaggle API token in ~/.kaggle/kaggle.json and accepted competition rules
-bash download_data.sh        # puts train.csv and test.csv in ./data
+```
+pip install kaggle
+kaggle competitions download -c playground-series-s6e11 -p data
 ```
 
-## Approach
-
-1. **EDA**: ranges, missing values, duplicates, target balance, distributions by class, categorical fraud rates, correlations, feature importance (mutual information and LightGBM gain), train vs test shift.
-2. **Models**: logistic regression, LightGBM and XGBoost, each with and without imbalance handling (`class_weight` / `scale_pos_weight`).
-3. **Feature engineering**: categorical pair combinations and frequency encodings, kept only if the CV gain exceeds the fold standard deviation.
-4. **Tuning**: Optuna (TPE) for LightGBM and XGBoost, small grid for logistic regression, all scored by PR-AUC on the same 5 folds.
-5. **Final model**: best configuration refit on 100% of the data, threshold stored with the model.
-
-Everything is in `notebook.ipynb`. `train.py` reproduces the final model from the configuration the notebook saves in `params/best_params.json`.
-
-## Results
-
-Numbers come from the notebook (selection table) and `models/metrics.json` (written by `train.py`).
-
-| Model | PR-AUC (CV mean) | ROC-AUC (CV mean) |
-|---|---|---|
-| Selected model | _fill in after running_ | _fill in after running_ |
-
-At the chosen threshold: precision _fill in_, recall _fill in_ (out-of-fold).
+Unzip into `data/` so that `data/train.csv` exists.
 
 ## Project structure
 
+| File | Purpose |
+|---|---|
+| `notebook.ipynb` | EDA, baselines, feature engineering, tuning, model selection, threshold |
+| `fraud_pipeline.py` | shared code (loading, features, CV, metrics, threshold) |
+| `train.py` | trains the selected model with 5-fold CV and saves it |
+| `predict.py` | Flask service (`/health`, `/predict`) |
+| `params/best_params.json` | tuned hyperparameters chosen in the notebook |
+| `models/model.joblib` | saved model used by the service |
+| `Dockerfile`, `requirements.txt` | container and dependencies |
+
+## EDA findings
+
+- Strongest signals: `cvv_retry_count`, `merchant_risk_score`, `velocity_score`, `auth_method` (No Authentication has about 6.5% fraud), high-risk merchant categories (Gift Cards, Crypto Exchange, Gaming).
+- Numeric features are almost uncorrelated with each other. No train-test shift (adversarial AUC 0.501).
+
+## Models and results
+
+Logistic regression, LightGBM and XGBoost, with and without class weighting; Optuna (40 trials, 30% sample) for the boosted models and a small grid for logistic regression. Out-of-fold scores on all rows:
+
+| Model | PR-AUC | ROC-AUC |
+|---|---|---|
+| **LightGBM tuned (selected)** | **0.5129** | **0.9472** |
+| XGBoost tuned | 0.5116 | 0.9470 |
+| XGBoost baseline | 0.5014 | 0.9455 |
+| LightGBM baseline | 0.4980 | 0.9453 |
+| Logistic regression | 0.4895 | 0.9419 |
+
+Notes: class weighting and engineered features gave no gain over the fold std (about 0.01), so they were dropped. Tuning gave about +0.013 PR-AUC.
+
+Threshold 0.193 (highest precision with recall at least 0.80): precision 0.161, recall 0.800, F1 0.268. The model catches 9,352 of 11,689 frauds and raises about 5 false alarms per caught fraud.
+
+## Run locally
+
 ```
-README.md              this file
-notebook.ipynb         EDA, model selection, tuning
-train.py               trains the final model, saves models/model.joblib
-predict.py             Flask web service (loads the model and serves /predict)
-fraud_pipeline.py      shared preprocessing, models, CV and metrics
-params/                best_params.json written by the notebook
-requirements.txt       full environment (notebook, training, deployment)
-requirements-serve.txt minimal environment for the service and the Docker image
-Dockerfile             container for the service
-download_data.sh       downloads the data from Kaggle
-deploy_hf.py           deploys the container to a Hugging Face Space
-FUTURE_IMPROVEMENTS.md planned experiments
-```
-
-## Run it
-
-### 1. Environment
-
-Tested with Python 3.13.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python train.py
+python predict.py
 ```
 
-### 2. Data, notebook and training
+Check the service:
 
-```bash
-bash download_data.sh
-jupyter lab notebook.ipynb         # optional, writes params/best_params.json
-python train.py                    # writes models/model.joblib, metrics.json, example_request.json
 ```
-
-The notebook has `N_TRIALS` and `TUNE_FRAC` at the top to shorten the Optuna search.
-`train.py` runs with defaults if `params/best_params.json` is missing.
-
-### 3. Web service
-
-```bash
-gunicorn --bind 0.0.0.0:9696 predict:app
-```
-
-```bash
 curl http://localhost:9696/health
-
-curl -X POST -H "Content-Type: application/json" \
-     -d @models/example_request.json \
-     http://localhost:9696/predict
 ```
 
-`models/example_request.json` is a real training row written by `train.py`. Response:
+`POST /predict` takes one transaction as JSON with the 24 feature fields (without `id`) and returns the fraud probability and the label at the chosen threshold.
 
-```json
-{"fraud_probability": 0.0123, "is_fraud": false, "threshold": 0.4321}
+## Docker
+
+```
+docker build -t fraud-detection .
+docker run -p 9696:9696 fraud-detection
 ```
 
-Missing features are imputed and listed in a `missing_features` field.
+## Cloud deployment
 
-### 4. Docker
+Deployed as a Docker Space on Hugging Face: `<add Space URL here>`
 
-Train first, because the image copies `models/model.joblib`.
+## Future improvements
 
-```bash
-docker build -t fraud-service .
-docker run -it --rm -p 9696:9696 fraud-service
-```
-
-Then use the same `curl` commands as above.
-
-### 5. Deployment (Hugging Face Space)
-
-The same container runs as a Docker Space.
-
-```bash
-export HF_TOKEN=hf_xxx                        # token with write access
-python deploy_hf.py --space <username>/credit-card-fraud
-```
-
-Live service: _add the Space URL here_
-Screenshot or video of a prediction: _add the link here_
+Raise the tree cap (tuned models used 1,794 to 1,943 of 2,000 trees), ensemble LightGBM and XGBoost (hill climbing or stacking), pseudo-labelling, seed averaging.
