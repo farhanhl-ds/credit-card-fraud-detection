@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+.ipynb_checkpoints
+data
+artifacts
+params
+notebook.ipynb
+README.md
+FUTURE_IMPROVEMENTS.md
+models/*
+!models/model.joblib

@@ -1,0 +1,15 @@
+{
+  "model": "lightgbm",
+  "use_fe": false,
+  "params": {
+    "learning_rate": 0.026377542826928734,
+    "num_leaves": 245,
+    "max_depth": 3,
+    "min_child_samples": 179,
+    "subsample": 0.8132023642647251,
+    "colsample_bytree": 0.5177159649840722,
+    "reg_alpha": 0.0104462854843429,
+    "reg_lambda": 0.41625909759111074,
+    "scale_pos_weight": 7.673456866741269
+  }
+}
