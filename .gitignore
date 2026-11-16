@@ -4,7 +4,7 @@ __pycache__/
 .ipynb_checkpoints/
 data/
 artifacts/
-models/
+models/*.json
 submission.csv
 notebook_og.ipynb
 context/
